@@ -358,6 +358,7 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                                     "・分析は事実の記述に留め、推測や提案は含めないでください。\n"
                                     f"・{pattern_name}のデータであることを前提に分析してください。")
 
+
                           response = client.chat.completions.create(
                               #model="gpt-3.5-turbo",
                               model="gpt-4-turbo",
@@ -367,15 +368,6 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                                   {"role": "user", "content": prompt}
                               ]
                           )
-
-                          # .env ファイルから環境変数を読み込む
-                          load_dotenv()
-
-                          # OpenAI APIキーを環境変数から取得
-                          openai_api_key = os.getenv("OPENAI_API_KEY")
-
-                          # OpenAIクライアントの初期化
-                          client = OpenAI(api_key=openai_api_key)
 
                           st.subheader(f"AIコメント")
                           st.write(response.choices[0].message.content)
