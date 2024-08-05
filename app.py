@@ -368,6 +368,15 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                               ]
                           )
 
+                          # .env ファイルから環境変数を読み込む
+                          load_dotenv()
+
+                          # OpenAI APIキーを環境変数から取得
+                          openai_api_key = os.getenv("OPENAI_API_KEY")
+
+                          # OpenAIクライアントの初期化
+                          client = OpenAI(api_key=openai_api_key)
+
                           st.subheader(f"AIコメント")
                           st.write(response.choices[0].message.content)
 
