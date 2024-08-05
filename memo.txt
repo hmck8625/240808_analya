@@ -1,0 +1,7 @@
+###ローカルにてファイルアップロード時　403エラーが発生する場合
+
+streamlit run app.py --server.enableXsrfProtection false
+
+で解決した
+
+https://stackoverflow.com/questions/78019438/axioserror-request-failed-with-status-code-403-in-streamlit
