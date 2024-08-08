@@ -23,8 +23,8 @@ API_KEY = st.text_input("Google Sheets API Keyを入力してください", type
 """
 
 # アップローとよう
-openai_api_key = st.secrets.AzureApiKey.openai_api_key
-API_KEY = st.secrets.AzureApiKey.sheets_api_key
+OPENAI_API_KEY = st.secrets.AzureApiKey.OPENAI_API_KEY
+API_KEY = st.secrets.AzureApiKey.SHEETS_API_KEY
 
 # スプレッドシートIDの入力
 SPREADSHEET_ID = st.text_input("Google SpreadsheetのIDを入力してください", value="1BD-AEaNEWpPyzb5CySUc_XlNqWNIzu_1tC8C0g68Dpw")
