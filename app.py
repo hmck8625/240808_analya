@@ -12,22 +12,27 @@ import numpy as np
 # .env ファイルから環境変数を読み込む
 load_dotenv()
 
-# OpenAI APIキーを環境変数から取得
-openai_api_key = os.getenv("OPENAI_API_KEY")
-
-# OpenAIクライアントの初期化
-client = OpenAI(api_key=openai_api_key)
-
 st.title('デジタル広告データ分析アプリ')
+
+# OpenAI APIキーを環境変数から取得
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Google Sheets API キーの入力
 API_KEY = st.text_input("Google Sheets API Keyを入力してください", type="password", value="AIzaSyBP9qP9XZh1Nm2jsi_MvcWKmTaVNM6F-7A")
+
+# アップローとよう
+openai_api_key = st.secrets.AzureApiKey.openai_api_key
+API_KEY = st.secrets.AzureApiKey.sheets_api_key
 
 # スプレッドシートIDの入力
 SPREADSHEET_ID = st.text_input("Google SpreadsheetのIDを入力してください", value="1BD-AEaNEWpPyzb5CySUc_XlNqWNIzu_1tC8C0g68Dpw")
 
 # シート名の入力
 SHEET_NAME = st.text_input("シート名を入力してください", value="シート1")
+
+# OpenAIクライアントの初期化
+client = OpenAI(api_key=OPENAI_API_KEY)
+
 
 if API_KEY and SPREADSHEET_ID and SHEET_NAME:
     try:
