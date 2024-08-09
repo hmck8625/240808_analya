@@ -15,11 +15,9 @@ load_dotenv()
 st.title('デジタル広告データ分析アプリ')
 
 """
-# OpenAI APIキーを環境変数から取得
+# APIキーを環境変数から取得
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-# Google Sheets API キーの入力
-API_KEY = st.text_input("Google Sheets API Keyを入力してください", type="password", value="AIzaSyBP9qP9XZh1Nm2jsi_MvcWKmTaVNM6F-7A")
+API_KEY = os.getenv("SHEETS_API_KEY")
 """
 
 # アップローとよう
