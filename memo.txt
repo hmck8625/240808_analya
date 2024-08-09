@@ -7,5 +7,4 @@ streamlit run app.py --server.enableXsrfProtection false
 https://stackoverflow.com/questions/78019438/axioserror-request-failed-with-status-code-403-in-streamlit
 
 
-OPENAI_API_KEY = 'sk-proj-fP1XBE06lcRpQr9ZDHIuT3BlbkFJgqHveBFhcEx65ExTaeee'
-API_KEY = 'AIzaSyBP9qP9XZh1Nm2jsi_MvcWKmTaVNM6F-7A'
+aaaaaaa
