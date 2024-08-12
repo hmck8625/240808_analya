@@ -421,7 +421,7 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                     st.plotly_chart(create_chart(cpc_chart_data, "CPCに対する CTR, CPMの改善率"))
 
                     ### 生データの表示
-                    st.subheader("生データ")
+                    st.write("媒体比較データ")
                     raw_data = df
                     
                     # 必要な列のみを選択
@@ -436,8 +436,8 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                     period2_data.columns = [col.replace('_2', '') for col in period2_data.columns]
                     
                     # 期間の列を追加
-                    period1_data.insert(0, 'period', 'period1')
-                    period2_data.insert(0, 'period', 'period2')
+                    period1_data.insert(0, 'period', '期間1(過去)')
+                    period2_data.insert(0, 'period', '期間2(直近)')
                     
                     # 2つのデータフレームを結合
                     display_data = pd.concat([period1_data, period2_data])
@@ -605,7 +605,8 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                                         "#注意事項\n"
                                         "・値が0やinf, nanになっている項目については言及しないでください。\n"
                                         "・分析は事実の記述に留め、推測や提案は含めないでください。\n"
-                                        f"・{pattern_name}のデータであることを前提に分析してください。")
+                                        f"・{pattern_name}のデータであることを前提に分析してください。\n"
+                                        "最も重要です。上記の分析は簡潔に１００文字程度でまとめてください。")
 
 
                             response = client.chat.completions.create(
