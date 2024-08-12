@@ -19,13 +19,12 @@ load_dotenv()
 
 st.title('デジタル広告データ分析アプリ')
 
+#APIキーを環境変数から取得
+#OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+#API_KEY = os.getenv("SHEETS_API_KEY")
 
-# APIキーを環境変数から取得
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-API_KEY = os.getenv("SHEETS_API_KEY")
-
-#OPENAI_API_KEY = st.secrets.AzureApiKey.OPENAI_API_KEY
-#API_KEY = st.secrets.AzureApiKey.SHEETS_API_KEY
+OPENAI_API_KEY = st.secrets.AzureApiKey.OPENAI_API_KEY
+API_KEY = st.secrets.AzureApiKey.SHEETS_API_KEY
 
 # スプレッドシートIDの入力
 SPREADSHEET_ID = st.text_input("Google SpreadsheetのIDを入力してください", value="1BD-AEaNEWpPyzb5CySUc_XlNqWNIzu_1tC8C0g68Dpw")
