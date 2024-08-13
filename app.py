@@ -13,16 +13,20 @@ import statsmodels.api as sm
 import plotly.graph_objects as go
 import plotly.express as px
 import math
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 # .env ファイルから環境変数を読み込む
 load_dotenv()
 
 st.title('デジタル広告データ分析アプリ')
 
+"""
 #APIキーを環境変数から取得
-#OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-#API_KEY = os.getenv("SHEETS_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+API_KEY = os.getenv("SHEETS_API_KEY")
 
+"""
 OPENAI_API_KEY = st.secrets.AzureApiKey.OPENAI_API_KEY
 API_KEY = st.secrets.AzureApiKey.SHEETS_API_KEY
 
@@ -112,6 +116,7 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                     df_medium = df[df['media'] == medium]
                     fig.add_trace(go.Bar(x=df_medium[x], y=df_medium[y], name=medium))
                 fig.update_layout(barmode='stack', title=title, xaxis_title=x, yaxis_title=y)
+                fig.update_yaxes(tickformat=',d')  # Y軸を整数形式で表示
                 return fig
 
             def create_line_chart(df, x, y, title):
@@ -120,6 +125,7 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                     df_medium = df[df['media'] == medium]
                     fig.add_trace(go.Scatter(x=df_medium[x], y=df_medium[y], mode='lines+markers', name=medium))
                 fig.update_layout(title=title, xaxis_title=x, yaxis_title=y)
+                fig.update_yaxes(tickformat=',d')  # Y軸を整数形式で表示
                 return fig
 
             # グラフ表示
@@ -129,8 +135,8 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
             fig_cost = create_stacked_bar(df_filtered, x_axis, 'cost', f'媒体別の{analysis_type}Cost推移')
             st.plotly_chart(fig_cost)
 
-            # Install推移
-            fig_install = create_stacked_bar(df_filtered, x_axis, 'cv', f'媒体別の{analysis_type}Install推移')
+            # CV推移
+            fig_install = create_stacked_bar(df_filtered, x_axis, 'cv', f'媒体別の{analysis_type}CV推移')
             st.plotly_chart(fig_install)
 
             # CPA推移
@@ -268,7 +274,6 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                     data['cpa'] = data['cost'] / data['cv']
                     return data
 
-
                 def analyze_comparison(data1, data2):
                     # データをマージし、計算を行う
                     merged = pd.merge(data1, data2, on='media', suffixes=('_1', '_2'))
@@ -323,9 +328,78 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                     merged = pd.concat([merged, total_row], ignore_index=True)
 
                     return merged, overall_cv_diff, overall_cpa_diff
-                       
-                ### cpa変化の指標分析関数
 
+                def format_dataframe(df):
+                    # インデックスと列名の重複をチェック
+                    if df.index.duplicated().any():
+                        print("重複しているインデックスがあります:")
+                        duplicated_indices = df.index[df.index.duplicated()].unique()
+                        for idx in duplicated_indices:
+                            locs = df.index.get_loc(idx)
+                            print(f'重複しているインデックス: {idx} - 行番号: {locs}')
+                            if isinstance(locs, slice):
+                                print(f'行名: {df.index[locs]}')
+                            else:
+                                print(f'行名: {df.index[locs].tolist()}')
+                        # 重複しているインデックスを修正
+                        df = df.reset_index(drop=True)
+                    
+                    if df.columns.duplicated().any():
+                        print("重複している列名があります:")
+                        duplicated_columns = df.columns[df.columns.duplicated()].unique()
+                        for col in duplicated_columns:
+                            duplicated_locs = [i for i, x in enumerate(df.columns) if x == col]
+                            print(f'重複している列名: {col} - 列番号: {duplicated_locs}')
+                        # 重複している列名を修正
+                        df.columns = [f'{col}_{i}' if df.columns.tolist().count(col) > 1 else col 
+                                    for i, col in enumerate(df.columns)]
+
+                    format_dict = {
+                        'impression': '{:,.0f}',
+                        'click': '{:,.0f}',
+                        'cpm': '¥{:.0f}',
+                        'ctr': '{:.1f}%',
+                        'cpc': '¥{:.0f}',
+                        'cost': '¥{:,.0f}',
+                        'cv': '{:,.0f}',
+                        'cvr': '{:.2f}%',
+                        'cpa': '¥{:,.0f}'
+                    }
+                    
+                    def background_color_heatmap(col):
+                        cmap = plt.get_cmap('RdYlGn_r')
+                        
+                        # 数値型に変換を試みる
+                        numeric_col = pd.to_numeric(col, errors='coerce')
+                        
+                        # NaN値とinf値を除外してランクを計算
+                        valid_data = numeric_col.dropna()
+                        ranks = valid_data.rank(pct=True)
+                        
+                        colors = []
+                        font_colors = []
+
+                        for i, x in enumerate(numeric_col):
+                            if pd.isna(x) or np.isinf(x):
+                                colors.append('#808080')
+                                font_colors.append('white')  # デフォルトで文字色は白
+                            else:
+                                color = mcolors.rgb2hex(cmap(ranks.get(i, 0)))
+                                colors.append(color)
+                                
+                                # 背景色が薄い場合は文字色を黒に設定
+                                r, g, b = mcolors.hex2color(color)
+                                luminance = 0.299*r + 0.587*g + 0.114*b
+                                font_colors.append('black' if luminance > 0.5 else 'white')
+
+                        return [f'background-color: {color}; color: {font_color}' for color, font_color in zip(colors, font_colors)]
+
+                    return (df.style
+                            .format(format_dict)
+                            .apply(background_color_heatmap, subset=['cost', 'cv', 'cpa'])
+                    )
+
+                ### cpa変化の指標分析関数
                 def analyze_cpa_change(data, media='Total'):
 
                     """
@@ -441,8 +515,12 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                     
                     # 2つのデータフレームを結合
                     display_data = pd.concat([period1_data, period2_data])
-                    
-                    st.dataframe(display_data)
+
+                    # DataFrameの列を並べ替え
+                    desired_columns = ['period', 'impression', 'click', 'cpm', 'ctr','cpc', 'cost', 'cv', 'cvr', 'cpa']
+                    display_data = display_data.reindex(columns=desired_columns)
+
+                    st.dataframe(format_dataframe(display_data))
                     
                     return results
                 
@@ -473,31 +551,17 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                             data1_with_total = add_total_row(data1)
                             data2_with_total = add_total_row(data2)
 
+                            # DataFrameの列を並べ替え
+                            desired_columns = ['media', 'impression', 'click', 'cpm', 'ctr','cpc', 'cost', 'cv', 'cvr', 'cpa']
+                            data1_with_total = data1_with_total.reindex(columns=desired_columns)
+                            data2_with_total = data2_with_total.reindex(columns=desired_columns)
 
                             st.write(f"期間1: {dates[0]} から {dates[1] if len(dates) > 2 else dates[0]}")
-                            st.dataframe(data1_with_total.style.format({
-                                'impression': '{:,.0f}',
-                                'click': '{:,.0f}',
-                                'ctr': '{:.2f}%',
-                                'cpc': '¥{:.2f}',
-                                'cost': '¥{:,.0f}',
-                                'cv': '{:,.0f}',
-                                'cvr': '{:.2f}%',
-                                'cpa': '¥{:,.2f}'
-                            }).apply(lambda x: ['background-color: gray' if x.name == len(x) else '' for i in x], axis=1))
+                            st.dataframe(format_dataframe(data1_with_total).apply(lambda x: ['background-color: gray' if x.name == len(x) else '' for i in x],axis=1))
 
 
                             st.write(f"期間2: {dates[2] if len(dates) > 2 else dates[1]} から {dates[3] if len(dates) > 2 else dates[1]}")
-                            st.dataframe(data2_with_total.style.format({
-                                'impression': '{:,.0f}',
-                                'click': '{:,.0f}',
-                                'ctr': '{:.2f}%',
-                                'cpc': '¥{:.2f}',
-                                'cost': '¥{:,.0f}',
-                                'cv': '{:,.0f}',
-                                'cvr': '{:.2f}%',
-                                'cpa': '¥{:,.2f}'
-                            }).apply(lambda x: ['background-color: gray' if x.name == len(x) else '' for i in x], axis=1))
+                            st.dataframe(format_dataframe(data2_with_total).apply(lambda x: ['background-color: gray' if x.name == len(x) else '' for i in x],axis=1))
 
                             media_results, overall_cv_diff, overall_cpa_diff = analyze_comparison(data1, data2)
 
