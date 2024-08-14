@@ -21,7 +21,7 @@ load_dotenv()
 
 st.title('デジタル広告データ分析アプリ')
 
-"""
+
 #APIキーを環境変数から取得
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 API_KEY = os.getenv("SHEETS_API_KEY")
@@ -29,6 +29,7 @@ API_KEY = os.getenv("SHEETS_API_KEY")
 """
 OPENAI_API_KEY = st.secrets.AzureApiKey.OPENAI_API_KEY
 API_KEY = st.secrets.AzureApiKey.SHEETS_API_KEY
+"""
 
 # スプレッドシートIDの入力
 SPREADSHEET_ID = st.text_input("Google SpreadsheetのIDを入力してください", value="1BD-AEaNEWpPyzb5CySUc_XlNqWNIzu_1tC8C0g68Dpw")
@@ -143,8 +144,14 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
             fig_cpa = create_line_chart(df_filtered, x_axis, 'cpa', f'媒体別の{analysis_type}CPA推移')
             st.plotly_chart(fig_cpa)
 
+
+            # 今日の日付を取得し、1日前の日付を計算
+            from datetime import datetime, timedelta
+            today = datetime.now().date()
+            default_date = today - timedelta(days=1)
+
             st.subheader("日付比較分析")
-            analysis_date = st.date_input("分析する日付を選択してください", min_value=start_date, max_value=end_date)
+            analysis_date = st.date_input("分析する日付を選択してください", min_value=start_date, max_value=end_date, value=default_date)
 
             if st.button("分析実行"):
                 
@@ -412,6 +419,7 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                     Returns:
                     dict: 分析結果を含む辞書
                     """
+
                     # データのコピーを作成
                     df = data[data['media'] == media].copy()
                     
@@ -495,7 +503,7 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                     st.plotly_chart(create_chart(cpc_chart_data, "CPCに対する CTR, CPMの改善率"))
 
                     ### 生データの表示
-                    st.write("媒体比較データ")
+                    st.write(f"{media}の媒体比較データ")
                     raw_data = df
                     
                     # 必要な列のみを選択
@@ -580,10 +588,10 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
 
                             # 数値のフォーマットを調整
                             cv_cpa_table['delta_cv'] = cv_cpa_table['delta_cv'].round(0)
-                            cv_cpa_table['cv_contribution'] = cv_cpa_table['cv_contribution'].round(0).astype(str) + '%'
+                            cv_cpa_table['cv_contribution'] = (cv_cpa_table['cv_contribution']/100).round(2)
                             cv_cpa_table['delta_cpa'] = cv_cpa_table['delta_cpa'].round(0)
-                            cv_cpa_table['cpa_contribution'] = cv_cpa_table['cpa_contribution'].round(0).astype(str) + '%'
-                            
+                            cv_cpa_table['cpa_contribution'] = (cv_cpa_table['cpa_contribution']/100).round(2)
+
                             # 列名を日本語に変更
                             cv_cpa_table.columns = ['メディア', 'CV変化量', 'CV貢献度', 'CPA変化量', 'CPA変化率']
 
@@ -654,7 +662,14 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                                 
                             st.plotly_chart(plot_cpa_cv_scatter(media_results))
 
-                            st.dataframe(cv_cpa_table)
+                            st.write('cv, cpaの媒体毎変化量')
+                            st.dataframe(cv_cpa_table.style.format({
+                                    'CV変化量': '{:.0f}',
+                                    'CV貢献度': '{:.1f}%',
+                                    'CPA変化量': '{:.0f}',
+                                    'CPA変化率': '{:.1f}%'
+                                })
+                            )
 
                             overall_text, overall_table = format_overall_results(overall_results)
                             media_text, media_table = format_media_results(media_results)
@@ -665,14 +680,14 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                                         f"#メディア別の差分\n{media_text}\n"
                                         f"#分析FMT"
                                         "全体変化:全体のCV数とCPAの変化について簡潔に述べてください。\n"
-                                        "メディア別変化箇所：CV貢献度とCPA貢献から、全体の変化の要因となっているメディアを簡潔に教えてください\n"
+                                        "メディア別変化箇所:CV貢献度とCPA貢献から、全体の変化の要因となっているメディアを簡潔に教えてください\n"
                                         "#注意事項\n"
                                         "・値が0やinf, nanになっている項目については言及しないでください。\n"
                                         "・分析は事実の記述に留め、推測や提案は含めないでください。\n"
                                         f"・{pattern_name}のデータであることを前提に分析してください。\n"
-                                        "最も重要です。上記の分析は簡潔に１００文字程度でまとめてください。")
+                                        "最も重要です。上記の分析は簡潔に200文字程度でまとめてください。")
 
-
+                            """
                             response = client.chat.completions.create(
                                 #model="gpt-3.5-turbo",
                                 model="gpt-4-turbo",
@@ -685,9 +700,40 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
 
                             st.subheader(f"全体推移コメント(AI調整中)")
                             st.write(response.choices[0].message.content)
+                            """
+
 
                             ############ CPA変化要因分析
-                            results = analyze_cpa_change(media_results, 'Total')
+                            def analyze_top_contributors(media_results):
+                                
+                                # 'CV貢献度'と'CPA変化率'列を数値型に変換し、infとnanを除外
+                                media_results['CV貢献度'] = pd.to_numeric(media_results['CV貢献度'], errors='coerce')
+                                media_results['CPA変化率'] = pd.to_numeric(media_results['CPA変化率'], errors='coerce')                                
+                                # infとnanを除外
+                                media_results_filtered = media_results[~media_results['CV貢献度'].isin([np.inf, -np.inf, np.nan]) & 
+                                                                    ~media_results['CPA変化率'].isin([np.inf, -np.inf, np.nan])]
+
+                                
+                                # CV貢献度の上位5メディアを抽出
+                                top_cv = media_results_filtered.nlargest(5, 'CV貢献度')['メディア'].tolist()
+                                
+                                # CPA変化率の上位5メディアを抽出
+                                top_cpa = media_results_filtered.nlargest(5, 'CPA変化率')['メディア'].tolist()
+                                
+                                # 重複を除去して統合
+                                top_media = list(dict.fromkeys(top_cv + top_cpa))
+                                
+                                return top_media
+                            
+                            top_contributors_medias = analyze_top_contributors(cv_cpa_table)
+
+                            # タブを作成
+                            tabs = st.tabs(top_contributors_medias)
+                                
+                            # 各タブの内容を設定
+                            for i, media in enumerate(top_contributors_medias):
+                                with tabs[i]:
+                                    analyze_cpa_change(media_results, media)
 
 
     except Exception as e:
