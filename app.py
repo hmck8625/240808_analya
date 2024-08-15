@@ -337,6 +337,7 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
 
                     return merged, overall_cv_diff, overall_cpa_diff
 
+
                 def format_dataframe(df):
                     # インデックスと列名の重複をチェック
                     if df.index.duplicated().any():
@@ -440,7 +441,6 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
 
                     # 結果をまとめる
                     results = {
-                        'raw_data': df,
                         'cpa_impacts': {
                             'CPA': cpa_change,
                             'CVR': cvr_change,
@@ -676,33 +676,6 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                             media_text, media_table = format_media_results(media_results)
 
 
-                            prompt = (f"以下に広告の配信結果の{pattern_name}を示します。このデータを分析し、以下の指示に従って簡潔に記述してください。\n\n"
-                                        f"#プロモーション全体の推移\n{overall_text}\n"
-                                        f"#メディア別の差分\n{media_text}\n"
-                                        f"#分析FMT"
-                                        "全体変化:全体のCV数とCPAの変化について簡潔に述べてください。\n"
-                                        "メディア別変化箇所:CV貢献度とCPA貢献から、全体の変化の要因となっているメディアを簡潔に教えてください\n"
-                                        "#注意事項\n"
-                                        "・値が0やinf, nanになっている項目については言及しないでください。\n"
-                                        "・分析は事実の記述に留め、推測や提案は含めないでください。\n"
-                                        f"・{pattern_name}のデータであることを前提に分析してください。\n"
-                                        "最も重要です。上記の分析は簡潔に200文字程度でまとめてください。")
-
-                            """
-                            response = client.chat.completions.create(
-                                #model="gpt-3.5-turbo",
-                                model="gpt-4-turbo",
-
-                                messages=[
-                                    {"role": "system", "content": "あなたはデジタル広告の専門家です。データを分析し、実用的な示唆を提供してください。"},
-                                    {"role": "user", "content": prompt}
-                                ]
-                            )
-
-                            st.subheader(f"全体推移コメント(AI調整中)")
-                            st.write(response.choices[0].message.content)
-                            """
-
 
                             ############ CPA変化要因分析
                             def analyze_top_contributors(media_results):
@@ -730,11 +703,61 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
 
                             # タブを作成
                             tabs = st.tabs(top_contributors_medias)
+
+                            # 全メディアの結果を格納する文字列
+                            all_results = "#media別 数値改善幅（-は悪化）\n"
                                 
                             # 各タブの内容を設定
                             for i, media in enumerate(top_contributors_medias):
                                 with tabs[i]:
-                                    analyze_cpa_change(media_results, media)
+                                    results = analyze_cpa_change(media_results, media)
+            
+                                    # 各数値を (results数値 - 1) × 100 に変換する関数
+                                    def transform(value):
+                                        return (value - 1) * 100
+
+                                    all_results += f"{media}\n"
+                                    all_results += f"CPAの改善幅:{transform(results['cpa_impacts']['CPA']):.1f}% に対して"
+                                    all_results += f" CVR:{transform(results['cpa_impacts']['CVR']):.1f}%"
+                                    all_results += f" CPC:{transform(results['cpa_impacts']['CPC']):.1f}%\n"
+                                    all_results += f"CPCの改善幅:{transform(results['cpc_impacts']['CPC']):.1f}% に対して"
+                                    all_results += f" CPM:{transform(results['cpc_impacts']['CPM']):.1f}%"
+                                    all_results += f" CTR:{transform(results['cpc_impacts']['CTR']):.1f}%\n\n"
+
+                            # 全結果を表示
+                            print(all_results)
+
+
+                            prompt = (f"#分析step1：以下に広告の配信結果の{pattern_name}を示します。このデータを分析し、以下の指示に従って簡潔に記述してください。\n\n"
+                                        f"##プロモーション全体の推移\n{overall_text}\n"
+                                        f"##メディア別の差分\n{media_text}\n"
+                                        f"##分析FMT"
+                                        "全体変化:全体のCV数とCPAの変化について簡潔に述べてください。\n"
+                                        "メディア別変化箇所:CV貢献度とCPA貢献から、全体の変化の要因となっているメディアを簡潔に教えてください\n"
+                                        "##注意事項\n"
+                                        "・値が0やinf, nanになっている項目については言及しないでください。\n"
+                                        "・分析は事実の記述に留め、推測や提案は含めないでください。\n"
+                                        f"・{pattern_name}のデータであることを前提に分析してください。\n"
+                                        "最も重要です。上記の分析は簡潔に200文字程度でまとめてください。#分析step2："
+                                        f"#分析step2：以下にmedia別にCPAの改善幅とそれの要因となっているCPC, CVRのそれぞれの改善幅と、CPCの改善幅の要因となっているCPM, CTRの改善幅を示します\n"
+                                        f"step1で言及したメディアについて、以下の方法でcpa変化要因を深掘りしてください。簡潔に200文字で回答して \n"
+                                        f"{all_results}"
+                                        )
+
+                            
+                            response = client.chat.completions.create(
+                                #model="gpt-3.5-turbo",
+                                model="gpt-4-turbo",
+
+                                messages=[
+                                    {"role": "system", "content": "あなたはデジタル広告の専門家です。データを分析し、実用的な示唆を提供してください。"},
+                                    {"role": "user", "content": prompt}
+                                ]
+                            )
+
+                            st.subheader(f"全体推移コメント(AI調整中)")
+                            st.write(response.choices[0].message.content)
+                            
 
 
     except Exception as e:
