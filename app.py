@@ -19,9 +19,10 @@ import matplotlib.colors as mcolors
 # .env ファイルから環境変数を読み込む
 load_dotenv()
 
-st.title('デジタル広告データ分析アプリ')
+st.title('データ分析 はまたろう')
 
 """
+
 #APIキーを環境変数から取得
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 API_KEY = os.getenv("SHEETS_API_KEY")
@@ -31,12 +32,17 @@ API_KEY = os.getenv("SHEETS_API_KEY")
 OPENAI_API_KEY = st.secrets.AzureApiKey.OPENAI_API_KEY
 API_KEY = st.secrets.AzureApiKey.SHEETS_API_KEY
 
-
 # スプレッドシートIDの入力
 SPREADSHEET_ID = st.text_input("Google SpreadsheetのIDを入力してください", value="1BD-AEaNEWpPyzb5CySUc_XlNqWNIzu_1tC8C0g68Dpw")
 
 # シート名の入力
 SHEET_NAME = st.text_input("シート名を入力してください", value="シート1")
+
+# モデル選択のプルダウンを追加
+gpt_model = st.selectbox(
+    "使用するGPTモデルを選択してください",
+    ("gpt-4o-mini", "none")
+)
 
 # OpenAIクライアントの初期化
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -291,10 +297,10 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                     merged['cost_volume'] = merged['cost_1'] / total_cost
                     
                     overall_cv_diff = merged['delta_cv'].sum()
-                    merged['cv_contribution'] = (merged['delta_cv'] / overall_cv_diff) * 100
+                    merged['cv_contribution'] = ((merged['delta_cv'] / overall_cv_diff) * 100).round()
 
-                    overall_cpa_diff = merged['cpa_2'] - merged['cpa_1']
-                    merged['cpa_contribution'] = merged['cpa_2'] / merged['cpa_1'] * 100
+                    overall_cpa_diff = (merged['cpa_2'] - merged['cpa_1']).round()
+                    merged['cpa_contribution'] = ((merged['cpa_2'] / merged['cpa_1']) * 100).round()
 
                     # Total行の計算と追加（修正版）
                     total_row = pd.DataFrame({
@@ -533,6 +539,8 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                     
                     return results
                 
+                # 3つの分析パターンの結果を格納するリスト
+                all_pattern_results = []
 
                 # 3つの分析パターンを実行
                 patterns = [
@@ -589,9 +597,9 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
 
                             # 数値のフォーマットを調整
                             cv_cpa_table['delta_cv'] = cv_cpa_table['delta_cv'].round(0)
-                            cv_cpa_table['cv_contribution'] = (cv_cpa_table['cv_contribution']/100).round(2)
+                            cv_cpa_table['cv_contribution'] = (cv_cpa_table['cv_contribution']).round(0)
                             cv_cpa_table['delta_cpa'] = cv_cpa_table['delta_cpa'].round(0)
-                            cv_cpa_table['cpa_contribution'] = (cv_cpa_table['cpa_contribution']/100).round(2)
+                            cv_cpa_table['cpa_contribution'] = (cv_cpa_table['cpa_contribution']).round(0)
 
                             # 列名を日本語に変更
                             cv_cpa_table.columns = ['メディア', 'CV変化量', 'CV貢献度', 'CPA変化量', 'CPA変化率']
@@ -746,9 +754,7 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
 
                             
                             response = client.chat.completions.create(
-                                #model="gpt-3.5-turbo",
-                                model="gpt-4-turbo",
-
+                                model=gpt_model,  # ここでプルダウンで選択されたモデルを使用
                                 messages=[
                                     {"role": "system", "content": "あなたはデジタル広告の専門家です。データを分析し、実用的な示唆を提供してください。"},
                                     {"role": "user", "content": prompt}
@@ -757,7 +763,44 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
 
                             st.subheader(f"全体推移コメント(AI調整中)")
                             st.write(response.choices[0].message.content)
-                            
+
+                            # 各パターンの分析結果を保存
+                            all_pattern_results.append({
+                                "pattern_name": pattern_name,
+                                "overall_text": overall_text,
+                                "media_text": media_text,
+                                "ai_analysis": response.choices[0].message.content
+                            })
+
+               # 3つのパターンの結果を統合してAIに分析させる
+                st.subheader("総合分析結果")
+
+                combined_prompt = "以下の3つの期間における広告パフォーマンスの分析結果を基に、最近の広告数値の推移を総合的に分析し、簡潔にまとめてください。\n\n"
+
+                for result in all_pattern_results:
+                    combined_prompt += f"# {result['pattern_name']}\n"
+                    combined_prompt += f"全体推移: {result['overall_text']}\n"
+                    combined_prompt += f"メディア別推移: {result['media_text']}\n"
+                    combined_prompt += f"AI分析: {result['ai_analysis']}\n\n"
+
+                combined_prompt += """
+                上記の情報を元に、以下の点について300-400字程度で総合的に分析してください：
+                1. 全体的なトレンド（CV数とCPAの推移）
+                2. 主要なメディアの貢献度の変化
+                3. 短期的（前日比）と中期的（1週間、2週間）な変化の違い
+                4. 注目すべき特徴的な動き
+
+                分析は事実に基づいて行い、推測や提案は避けてください。"""
+
+                combined_response = client.chat.completions.create(
+                    model=gpt_model,
+                    messages=[
+                        {"role": "system", "content": "あなたはデジタル広告の専門家です。複数の期間のデータを総合的に分析し、簡潔かつ洞察力のある分析を提供してください。"},
+                        {"role": "user", "content": combined_prompt}
+                    ]
+                )
+
+                st.write(combined_response.choices[0].message.content)
 
 
     except Exception as e:
