@@ -21,7 +21,6 @@ load_dotenv()
 
 st.title('データ分析 はまたろう')
 
-"""
 
 #APIキーを環境変数から取得
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -32,11 +31,13 @@ API_KEY = os.getenv("SHEETS_API_KEY")
 OPENAI_API_KEY = st.secrets.AzureApiKey.OPENAI_API_KEY
 API_KEY = st.secrets.AzureApiKey.SHEETS_API_KEY
 
+"""
+
 # スプレッドシートIDの入力
 SPREADSHEET_ID = st.text_input("Google SpreadsheetのIDを入力してください", value="1BD-AEaNEWpPyzb5CySUc_XlNqWNIzu_1tC8C0g68Dpw")
 
 # シート名の入力
-SHEET_NAME = st.text_input("シート名を入力してください", value="シート1")
+SHEET_NAME = st.selectbox("シート名を入力してください", ("三井_オーダー領域", "三井_セレクト領域", "リンリン", "レグルス"))
 
 # モデル選択のプルダウンを追加
 gpt_model = st.selectbox(
@@ -69,6 +70,8 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
 
         # 週の情報を追加
         df['week'] = df['day'].dt.to_period('W').astype(str)
+        # DataFrameの準備部分で月の情報を追加
+        df['month'] = df['day'].dt.to_period('M').astype(str)
 
         # 日別データの集計
         df_daily = df.groupby(['media', 'day']).agg({
@@ -87,6 +90,15 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
             'cv': 'sum'
         }).reset_index()
         df_weekly['cpa'] = df_weekly['cost'] / df_weekly['cv'].replace(0, 1)  # 0で割るのを防ぐ
+
+        # 月別データの集計を追加
+        df_monthly = df.groupby(['media', 'month']).agg({
+            'impression': 'sum',
+            'click': 'sum',
+            'cost': 'sum',
+            'cv': 'sum'
+        }).reset_index()
+        df_monthly['cpa'] = df_monthly['cost'] / df_monthly['cv'].replace(0, 1)
 
         # 分析期間の選択
         start_date = df['day'].min()
@@ -107,15 +119,21 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
             # 分析タイプの選択
             analysis_type = st.radio(
                 "分析タイプを選択してください",
-                ('日別', '週別')
+                ('日別', '週別', '月別')
             )
 
             if analysis_type == '日別':
                 df_filtered = df_daily_filtered
                 x_axis = 'day'
-            else:
+            elif analysis_type == '週別':
                 df_filtered = df_weekly_filtered
                 x_axis = 'week'
+            else:  # 月別の場合
+                df_filtered = df_monthly[df_monthly['month'].isin(
+                    df['month'][(df['day'] >= pd.Timestamp(date_range[0])) & 
+                            (df['day'] <= pd.Timestamp(date_range[1]))]
+                )]
+                x_axis = 'month'
 
             # グラフ作成関数
             def create_stacked_bar(df, x, y, title):
@@ -129,25 +147,172 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
 
             def create_line_chart(df, x, y, title):
                 fig = go.Figure()
+                
+                # 各メディアのデータをプロット
                 for medium in df['media'].unique():
                     df_medium = df[df['media'] == medium]
-                    fig.add_trace(go.Scatter(x=df_medium[x], y=df_medium[y], mode='lines+markers', name=medium))
-                fig.update_layout(title=title, xaxis_title=x, yaxis_title=y)
-                fig.update_yaxes(tickformat=',d')  # Y軸を整数形式で表示
+                    fig.add_trace(go.Scatter(
+                        x=df_medium[x], 
+                        y=df_medium[y], 
+                        mode='lines+markers', 
+                        name=medium,
+                        hovertemplate=f"{medium}<br>{x}: %{{x}}<br>{y}: ¥%{{y:,.0f}}<extra></extra>"
+                    ))
+                
+                # Total CPAの計算と追加
+                df_total = df.groupby(x).agg({
+                    'cost': 'sum',
+                    'cv': 'sum'
+                }).reset_index()
+                df_total['total_cpa'] = df_total['cost'] / df_total['cv'].replace(0, 1)
+                
+                # Total CPAをプロット（赤紫色で表示）
+                fig.add_trace(go.Scatter(
+                    x=df_total[x],
+                    y=df_total['total_cpa'],
+                    mode='lines+markers',
+                    name='Total CPA',
+                    line=dict(
+                        color='rgb(148, 0, 211)',  # 紫色
+                        width=3,
+                        dash='dot'
+                    ),
+                    marker=dict(
+                        size=10,
+                        symbol='diamond'
+                    ),
+                    hovertemplate="Total CPA<br>" +
+                                f"{x}: %{{x}}<br>" +
+                                "CPA: ¥%{y:,.0f}<br>" +
+                                "CV: %{customdata[0]:,.0f}<br>" +
+                                "Cost: ¥%{customdata[1]:,.0f}<extra></extra>",
+                    customdata=np.column_stack((df_total['cv'], df_total['cost']))
+                ))
+                
                 return fig
+                                    
+            def create_percentage_stacked_bar(df, x, y, title):
+                """
+                100%積み上げグラフを作成する関数
+                
+                Parameters:
+                df (pd.DataFrame): データフレーム
+                x (str): x軸の列名
+                y (str): y軸の列名
+                title (str): グラフのタイトル
+                
+                Returns:
+                go.Figure: Plotlyのグラフオブジェクト
+                """
+                # 日付ごとの合計を計算
+                totals = df.groupby(x)[y].sum().reset_index()
+                
+                fig = go.Figure()
+                
+                # 各メディアのデータを追加
+                for medium in df['media'].unique():
+                    df_medium = df[df['media'] == medium]
+                    
+                    # パーセンテージの計算
+                    percentages = []
+                    values = []  # 実数値を保存
+                    for date in df_medium[x]:
+                        total = totals[totals[x] == date][y].iloc[0]
+                        value = df_medium[df_medium[x] == date][y].iloc[0]
+                        percentage = (value / total) * 100 if total != 0 else 0
+                        percentages.append(percentage)
+                        values.append(value)
+                    
+                    # グラフにトレースを追加（name パラメータのみで凡例は自動的に表示される）
+                    fig.add_trace(go.Bar(
+                        x=df_medium[x],
+                        y=percentages,
+                        name=medium,  # これだけで凡例は自動的に表示される
+                        hovertemplate=(
+                            f"{medium}: %{{y:.0f}}%" +
+                            f", %{{text}}" +
+                            "<extra></extra>"
+                        ),
+                        text=[f"{v:,.0f}" for v in values]
+                    ))
+                
+                # 基本的なレイアウトの設定
+                fig.update_layout(
+                    barmode='relative',  # 積み上げモード
+                    title=title,
+                    xaxis_title=x,
+                    yaxis_title='Percentage (%)',
+                    yaxis=dict(
+                        tickformat='.0f',  # パーセンテージを整数で表示
+                        range=[0, 100],  # y軸の範囲を0-100%に固定
+                        dtick=20  # 20%ごとに目盛りを表示
+                    ),
+                    hovermode='x unified'  # ホバー時の表示モード
+                )
+                
+                return fig
+
+
 
             # グラフ表示
             st.subheader(f"{analysis_type}分析結果")
 
-            # Cost推移
-            fig_cost = create_stacked_bar(df_filtered, x_axis, 'cost', f'媒体別の{analysis_type}Cost推移')
-            st.plotly_chart(fig_cost)
+            # ===========Cost推移グラフ===========
+            st.subheader(f"{analysis_type}Cost推移")
 
-            # CV推移
-            fig_install = create_stacked_bar(df_filtered, x_axis, 'cv', f'媒体別の{analysis_type}CV推移')
-            st.plotly_chart(fig_install)
+            # タブの作成
+            cv_tab1, cv_tab2 = st.tabs(["実数", "構成比(%)"])
+
+            # 実数のタブ
+            with cv_tab1:
+                fig_cv = create_stacked_bar(df_filtered, x_axis, 'cost', '')
+                fig_cv.update_layout(
+                    height=400,
+                    margin=dict(t=10),
+                    yaxis_title="Cost"
+                )
+                st.plotly_chart(fig_cv, use_container_width=True)
+
+            # 構成比のタブ
+            with cv_tab2:
+                fig_cv_percentage = create_percentage_stacked_bar(df_filtered, x_axis, 'cost', '')
+                fig_cv_percentage.update_layout(
+                    height=400,
+                    margin=dict(t=10),
+                    yaxis_title="構成比(%)"
+                )
+                st.plotly_chart(fig_cv_percentage, use_container_width=True)
+
+
+            # ===========CV推移グラフ===========
+            st.subheader(f"{analysis_type}CV推移")
+
+            # タブの作成
+            cv_tab1, cv_tab2 = st.tabs(["実数", "構成比(%)"])
+
+            # 実数のタブ
+            with cv_tab1:
+                fig_cv = create_stacked_bar(df_filtered, x_axis, 'cv', '')
+                fig_cv.update_layout(
+                    height=400,
+                    margin=dict(t=10),
+                    yaxis_title="CV数"
+                )
+                st.plotly_chart(fig_cv, use_container_width=True)
+
+            # 構成比のタブ
+            with cv_tab2:
+                fig_cv_percentage = create_percentage_stacked_bar(df_filtered, x_axis, 'cv', '')
+                fig_cv_percentage.update_layout(
+                    height=400,
+                    margin=dict(t=10),
+                    yaxis_title="構成比(%)"
+                )
+                st.plotly_chart(fig_cv_percentage, use_container_width=True)
 
             # CPA推移
+            
+            st.subheader(f"{analysis_type}CPA推移")
             fig_cpa = create_line_chart(df_filtered, x_axis, 'cpa', f'媒体別の{analysis_type}CPA推移')
             st.plotly_chart(fig_cpa)
 
@@ -733,6 +898,10 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                                     all_results += f" CTR:{transform(results['cpc_impacts']['CTR']):.1f}%\n\n"
 
                             # 全結果を表示
+                            print(overall_text)
+                            print("---")
+                            print(media_text)
+                            print("---")
                             print(all_results)
 
 
