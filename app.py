@@ -21,7 +21,7 @@ load_dotenv()
 
 st.title('データ分析 はまたろう')
 
-"""
+
 #APIキーを環境変数から取得
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 API_KEY = os.getenv("SHEETS_API_KEY")
@@ -30,7 +30,7 @@ API_KEY = os.getenv("SHEETS_API_KEY")
 
 OPENAI_API_KEY = st.secrets.AzureApiKey.OPENAI_API_KEY
 API_KEY = st.secrets.AzureApiKey.SHEETS_API_KEY
-
+"""
 
 
 # スプレッドシートIDの入力
@@ -134,6 +134,75 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                             (df['day'] <= pd.Timestamp(date_range[1]))]
                 )]
                 x_axis = 'month'
+
+
+            def create_analysis_prompt(pattern_name, overall_text, all_results, media_text):
+                prompt = f"""
+                    #広告パフォーマンス分析レポート（{pattern_name}）
+                    本分析では、パフォーマンスの変化とその要因を3段階で特定し、各階層での重要な発見を報告。
+
+                    #インプットデータ
+                    ##1. 全体パフォーマンス指標
+                    {overall_text}
+
+                    ##2. 領域別貢献度分析
+                    {all_results}
+
+                    ##3. KPI要因分解データ
+                    {media_text}
+
+                    #分析フレームワーク
+                    ##第1階層：全体数値評価
+                    目的：全体のパフォーマンス変化が事業に与える影響を定量化
+                    分析項目：
+                    - CV指標：CV数の絶対値と変化率
+                    - CPA指標：CPAの絶対値と変化率
+                    →良し悪しの判断と、それを裏付けるCV/CPA推移を記載
+
+                    ##第2階層：貢献度分析
+                    目的：パフォーマンス変化の主要因領域を特定
+                    分析項目：
+                    - プラス貢献領域：CV貢献度上位１〜３つの特定と変化幅
+                    - マイナス貢献領域：CV貢献度下位１〜３つの特定と変化幅
+                    →各領域のCV/CPA変化を絶対値と比率で記載
+
+                    ##第3階層：KPI要因分解
+                    目的：特定領域の変化要因を分解
+                    分析項目：
+                    - CV変動要因：CVR、CTR、CPCの変化率
+                    - CPA変動要因：CPM、CTR、CPC、CVRの変化率
+                    →主要因とその変化率を記載
+
+                    #出力要件
+                    ■アウトプット形式
+                    1. 全体数値評価
+                    - 全体評価：[良/悪の判断]
+                    - 根拠指標：
+                    CV：[絶対値]の変化（[変化率]%）
+                    CPA：[絶対値]の変化（[変化率]%）
+
+                    2. 貢献度分析
+                    - プラス貢献：[領域名]（CV貢献度[数値]%）
+                    CV：[絶対値]増（[変化率]%）
+                    CPA：[絶対値]変化（[変化率]%）
+                    - マイナス貢献：[領域名]（CV貢献度[数値]%）
+                    CV：[絶対値]減（[変化率]%）
+                    CPA：[絶対値]変化（[変化率]%）
+
+                    3. 要因分解（対象：[領域名]）
+                    - CV変動：[主要因指標]が[変化率]%変化
+                    - CPA変動：[主要因指標]が[変化率]%変化
+                    └ 要因分解：[CPM変化率]% / [CTR変化率]%
+
+                    ■制約条件
+                    - 無効値（0/inf/nan）は除外
+                    - 事実ベースの記述のみ
+                    - 体言止め形式を維持
+                    - {pattern_name}基準での分析
+                    - 全体で500文字以内
+                    """
+                return prompt
+
 
             # グラフ作成関数
             def create_stacked_bar(df, x, y, title):
@@ -403,12 +472,14 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                     text_output = "\nメディア別貢献度分析結果:\n"
                     for _, row in media_results.iterrows():
                         text_output += (f"メディア: {row['media']}\n"
-                                        f"CV貢献度: {row['cv_contribution']:.2f}%\n"
-                                        f"CPA貢献度: {row['cpa_contribution']:.2f}%\n\n")
+                                        f"CV差分: {row['delta_cv']:.0f}%\n"
+                                        f"CV貢献度: {row['cv_contribution']:.0f}%\n"
+                                        f"CPA差分: {row['delta_cpa']:.0f}%\n"
+                                        f"CPA変化割合: {row['cpa_contribution']:.0f}%\n")
                     
                     # 表形式のデータを作成
                     table_data = media_results[['media', 'delta_cv', 'cv_contribution', 'delta_cpa', 'cpa_contribution']].copy()
-                    table_data.columns = ['メディア','CV差分','CV貢献度(%)', 'CPA差分','CPA貢献度(%)']
+                    table_data.columns = ['メディア','CV差分','CV貢献度(%)', 'CPA差分','CPA変化割合(%)']
                                         
                     return text_output, table_data
 
@@ -837,6 +908,8 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                             st.plotly_chart(plot_cpa_cv_scatter(media_results))
 
                             st.write('cv, cpaの媒体毎変化量')
+                            st.info("CV貢献度:全体のCV変化数に対する、対象領域のCV変化幅がどの程度影響を与えているかを示しています")
+
                             st.dataframe(cv_cpa_table.style.format({
                                     'CV変化量': '{:.0f}',
                                     'CV貢献度': '{:.1f}%',
@@ -844,6 +917,51 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                                     'CPA変化率': '{:.1f}%'
                                 })
                             )
+
+                            # 棒グラフの作成
+                            def create_metric_bar_charts(data):
+                                metrics = ['CV貢献度', 'CV変化量','CPA変化量', 'CPA変化率']
+                                tabs = st.tabs(metrics)
+                                
+                                for metric, tab in zip(metrics, tabs):
+                                    with tab:
+                                        fig = go.Figure()
+                                        
+                                        # 値に基づいて色を設定
+                                        colors = ['green' if val >= 0 else 'red' for val in data[metric]]
+                                        
+                                        # メディアごとの値を棒グラフで表示
+                                        fig.add_trace(go.Bar(
+                                            x=data['メディア'],
+                                            y=data[metric],
+                                            text=data[metric].apply(lambda x: f'{x:,.1f}' + ('%' if '率' in metric or '貢献度' in metric else '')),
+                                            textposition='auto',
+                                            marker_color=colors,  # 色を適用
+                                        ))
+                                        
+                                        # レイアウトの設定
+                                        fig.update_layout(
+                                            title=f'メディア別 {metric}',
+                                            xaxis_title='メディア',
+                                            yaxis_title=metric,
+                                            height=400,
+                                            showlegend=False,
+                                            # y軸のグリッド線を表示
+                                            yaxis=dict(
+                                                showgrid=True,
+                                                gridwidth=1,
+                                                gridcolor='LightGray'
+                                            )
+                                        )
+                                        
+                                        # ゼロラインを強調表示
+                                        fig.add_hline(y=0, line_width=1, line_color="black")
+                                        
+                                        st.plotly_chart(fig, use_container_width=True)
+
+                            # 棒グラフの表示
+                            create_metric_bar_charts(cv_cpa_table)
+
 
                             overall_text, overall_table = format_overall_results(overall_results)
                             media_text, media_table = format_media_results(media_results)
@@ -898,28 +1016,16 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                                     all_results += f" CTR:{transform(results['cpc_impacts']['CTR']):.1f}%\n\n"
 
                             # 全結果を表示
+                            print("---overall_text")
                             print(overall_text)
-                            print("---")
+                            print("---media_text")
                             print(media_text)
-                            print("---")
+                            print("---all_results")
                             print(all_results)
 
 
-                            prompt = (f"#分析step1：以下に広告の配信結果の{pattern_name}を示します。このデータを分析し、以下の指示に従って簡潔に記述してください。\n\n"
-                                        f"##プロモーション全体の推移\n{overall_text}\n"
-                                        f"##メディア別の差分\n{media_text}\n"
-                                        f"##分析FMT"
-                                        "全体変化:全体のCV数とCPAの変化について簡潔に述べてください。\n"
-                                        "メディア別変化箇所:CV貢献度とCPA貢献から、全体の変化の要因となっているメディアを簡潔に教えてください\n"
-                                        "##注意事項\n"
-                                        "・値が0やinf, nanになっている項目については言及しないでください。\n"
-                                        "・分析は事実の記述に留め、推測や提案は含めないでください。\n"
-                                        f"・{pattern_name}のデータであることを前提に分析してください。\n"
-                                        "最も重要です。上記の分析は簡潔に200文字程度でまとめてください。#分析step2："
-                                        f"#分析step2：以下にmedia別にCPAの改善幅とそれの要因となっているCPC, CVRのそれぞれの改善幅と、CPCの改善幅の要因となっているCPM, CTRの改善幅を示します\n"
-                                        f"step1で言及したメディアについて、以下の方法でcpa変化要因を深掘りしてください。簡潔に200文字で回答して \n"
-                                        f"{all_results}"
-                                        )
+                            prompt = create_analysis_prompt(pattern_name, overall_text, media_text, all_results)
+                            print(prompt)
 
                             
                             response = client.chat.completions.create(
@@ -930,7 +1036,7 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                                 ]
                             )
 
-                            st.subheader(f"全体推移コメント(AI調整中)")
+                            st.subheader(f"全体推移コメント")
                             st.write(response.choices[0].message.content)
 
                             # 各パターンの分析結果を保存
