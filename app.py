@@ -22,14 +22,16 @@ load_dotenv()
 
 st.title('データ分析 はまたろう')
 
+"""
+
 #APIキーを環境変数から取得
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 API_KEY = os.getenv("SHEETS_API_KEY")
 
 """
+
 OPENAI_API_KEY = st.secrets.AzureApiKey.OPENAI_API_KEY
 API_KEY = st.secrets.AzureApiKey.SHEETS_API_KEY
-"""
 
 
 # スプレッドシートIDの入力
