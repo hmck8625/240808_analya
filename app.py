@@ -15,19 +15,18 @@ import plotly.express as px
 import math
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from typing import Dict
 
 # .env ファイルから環境変数を読み込む
 load_dotenv()
 
 st.title('データ分析 はまたろう')
 
-
 #APIキーを環境変数から取得
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 API_KEY = os.getenv("SHEETS_API_KEY")
 
 """
-
 OPENAI_API_KEY = st.secrets.AzureApiKey.OPENAI_API_KEY
 API_KEY = st.secrets.AzureApiKey.SHEETS_API_KEY
 """
@@ -47,6 +46,84 @@ gpt_model = st.selectbox(
 
 # OpenAIクライアントの初期化
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+def get_monthly_comparison_data(df, target_date):
+    """
+    当月（1日〜選択日まで）と前月（1日〜末日）のデータを取得し、1日あたりの平均値を計算する
+    
+    Parameters:
+    df (pd.DataFrame): 元データ
+    target_date (datetime): 基準日
+    
+    Returns:
+    tuple: (前月データ, 当月データ)
+    """
+    # 日付型の統一（datetime64[ns]に変換）
+    if isinstance(target_date, pd.Timestamp):
+        target_date = target_date.to_pydatetime()
+    
+    # 当月の期間設定（1日から選択日まで）
+    current_month_start = target_date.replace(day=1)
+    current_month_end = target_date
+    
+    # 前月の期間設定（前月1日から前月末日まで）
+    prev_month_start = (current_month_start - pd.offsets.MonthBegin(1))
+    print("prev_month_start:", prev_month_start)
+    prev_month_end = (current_month_start - pd.offsets.Day(1))
+    print("prev_month_end:", prev_month_end)
+
+    current_month_mask = (df['day'] >= pd.Timestamp(current_month_start)) & (df['day'] <= pd.Timestamp(current_month_end))
+    prev_month_mask = (df['day'] >= pd.Timestamp(prev_month_start)) & (df['day'] <= pd.Timestamp(prev_month_end))
+    
+    # データ存在チェック
+
+    if not df[current_month_mask].shape[0]:
+        st.error(f"当月のデータが存在しません: {current_month_start} - {current_month_end}")
+        return None, None
+        
+    if not df[prev_month_mask].shape[0]:
+        st.error(f"前月のデータが存在しません: {prev_month_start} - {prev_month_end}")
+        return None, None
+    
+    # 各月のデータをグループ化し、合計を計算
+    current_month_data = df[current_month_mask].groupby('media').agg({
+        'impression': 'sum',
+        'click': 'sum',
+        'cost': 'sum',
+        'cv': 'sum'
+    }).reset_index()
+    
+    prev_month_data = df[prev_month_mask].groupby('media').agg({
+        'impression': 'sum',
+        'click': 'sum',
+        'cost': 'sum',
+        'cv': 'sum'
+    }).reset_index()
+    
+    # 実際のデータが存在する日数を計算
+    current_month_days = len(df[current_month_mask]['day'].unique())
+    prev_month_days = len(df[prev_month_mask]['day'].unique())
+        
+    # データが存在しない場合のチェック
+    if current_month_days == 0 or prev_month_days == 0:
+        st.warning(f"データが存在しない期間があります。前月: {prev_month_days}日分, 当月: {current_month_days}日分")
+        return None, None
+    
+    # 1日あたりの平均値に変換
+    for col in ['impression', 'click', 'cost', 'cv']:
+        current_month_data[col] = current_month_data[col] / current_month_days
+        prev_month_data[col] = prev_month_data[col] / prev_month_days
+    
+    # 派生指標を計算（平均値から計算）
+    for data in [current_month_data, prev_month_data]:
+        data['ctr'] = (data['click'] / data['impression']) * 100
+        data['cpm'] = (data['cost'] / data['impression']) * 1000
+        data['cpc'] = data['cost'] / data['click']
+        data['cvr'] = (data['cv'] / data['click']) * 100
+        data['cpa'] = data['cost'] / data['cv']
+    
+    return prev_month_data, current_month_data
 
 
 if API_KEY and SPREADSHEET_ID and SHEET_NAME:
@@ -778,11 +855,19 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                 # 3つの分析パターンの結果を格納するリスト
                 all_pattern_results = []
 
-                # 3つの分析パターンを実行
+                # 月次比較用の日付を計算
+                current_month_start = analysis_date.replace(day=1)
+                prev_month_start = (current_month_start - pd.offsets.MonthBegin(1))
+                prev_month_end = (current_month_start - pd.offsets.Day(1))
+
                 patterns = [
+                    # 月次比較には前月の期間と当月の期間を渡す
+                    ("月次比較", prev_month_start, prev_month_end, current_month_start, analysis_date),
                     ("前日比較", analysis_date - timedelta(days=1), analysis_date),
-                    ("1週間比較", analysis_date - timedelta(days=13), analysis_date - timedelta(days=7), analysis_date - timedelta(days=6), analysis_date),
-                    ("2週間比較", analysis_date - timedelta(days=25), analysis_date - timedelta(days=13), analysis_date - timedelta(days=12), analysis_date)
+                    ("1週間比較", analysis_date - timedelta(days=13), analysis_date - timedelta(days=7), 
+                    analysis_date - timedelta(days=6), analysis_date),
+                    ("2週間比較", analysis_date - timedelta(days=25), analysis_date - timedelta(days=13), 
+                    analysis_date - timedelta(days=12), analysis_date)
                 ]
 
                 for pattern_name, *dates in patterns:
@@ -790,12 +875,35 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                             # ここに各パターンの分析コードを配置
                             st.subheader(f"{pattern_name}の詳細")
                             
-                            if len(dates) == 2:
-                                data1 = get_date_range_data(df, dates[0], dates[0])
-                                data2 = get_date_range_data(df, dates[1], dates[1])
+                            if pattern_name == "月次比較":
+                                # 日付型の統一
+                                analysis_date_dt = pd.Timestamp(dates[0]).to_pydatetime()
+                                data1, data2 = get_monthly_comparison_data(df, analysis_date_dt)
+                                
+                                if data1 is None or data2 is None:
+                                    st.error("月次比較に必要なデータが不足しています。")
+                                else:
+                                    # 期間情報を表示
+                                    current_period = f"{analysis_date_dt.replace(day=1).strftime('%Y/%m/01')} - {analysis_date_dt.strftime('%Y/%m/%d')}"
+                                    prev_date = analysis_date_dt.replace(day=1) - pd.offsets.MonthBegin(1)
+                                    prev_end = prev_date + pd.offsets.MonthEnd(0)
+                                    prev_period = f"{prev_date.strftime('%Y/%m/01')} - {prev_end.strftime('%Y/%m/%d')}"
+                                    
+                                    st.info(f"""
+                                    比較期間:
+                                    - 前月: {prev_period} （月全体）
+                                    - 当月: {current_period} （選択日まで）
+                                    ※ 全ての指標は1日あたりの平均値で計算されています
+                                    """)
+
                             else:
-                                data1 = get_date_range_data(df, dates[0], dates[1])
-                                data2 = get_date_range_data(df, dates[2], dates[3])
+                                # 既存の処理をそのまま使用
+                                if len(dates) == 2:
+                                    data1 = get_date_range_data(df, dates[0], dates[0])
+                                    data2 = get_date_range_data(df, dates[1], dates[1])
+                                else:
+                                    data1 = get_date_range_data(df, dates[0], dates[1])
+                                    data2 = get_date_range_data(df, dates[2], dates[3])
 
                             data1 = calculate_metrics(data1)
                             data2 = calculate_metrics(data2)
@@ -1036,8 +1144,27 @@ if API_KEY and SPREADSHEET_ID and SHEET_NAME:
                                 ]
                             )
 
+                            # 分析結果を表示している箇所（for文内）での実装
                             st.subheader(f"全体推移コメント")
-                            st.write(response.choices[0].message.content)
+                            analysis_result = response.choices[0].message.content
+                            st.write(analysis_result)
+
+                            # 区切り線を追加
+                            st.divider()
+
+                            # Chatwork投稿用のメッセージを作成
+                            chatwork_message = f"""[info][title]{pattern_name} {analysis_date} 分析結果[/title]
+                            {analysis_result}
+                            [/info]"""
+
+                            # メッセージをコピーしやすい形で表示
+                            st.text_area(
+                                "📋 Chatwork用メッセージ",
+                                chatwork_message,
+                                height=100,
+                                help="このテキストをコピーしてChatworkに貼り付けてください",
+                                key=f"chatwork_message_{pattern_name}"
+                            )
 
                             # 各パターンの分析結果を保存
                             all_pattern_results.append({
